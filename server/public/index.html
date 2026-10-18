@@ -1,0 +1,223 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11111b">
+  <title>Planator</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #11111b;
+      --card: #1d1c2b;
+      --purple: #9b87f5;
+      --text: #f5f3ff;
+      --muted: #a5a1ba;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 20px 16px 40px;
+      background: var(--bg); color: var(--text);
+      font: 16px system-ui, sans-serif;
+    }
+    main { max-width: 600px; margin: auto; }
+    h1 { font-size: 30px; margin-bottom: 4px; }
+    h2 { font-size: 20px; }
+    .muted { color: var(--muted); }
+    .card {
+      background: var(--card); padding: 16px;
+      border-radius: 18px; margin: 14px 0;
+    }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .number { font-size: 26px; font-weight: 700; color: var(--purple); }
+    input, button {
+      font: inherit; border-radius: 12px; padding: 12px;
+    }
+    input {
+      width: 100%; color: var(--text);
+      background: #29273a; border: 1px solid #403b59;
+      margin: 6px 0;
+    }
+    button {
+      border: 0; background: var(--purple);
+      color: #171326; font-weight: 700; cursor: pointer;
+    }
+    .add { width: 100%; }
+    .task {
+      display: flex; gap: 10px; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid #343145;
+      overflow-wrap: anywhere;
+    }
+    .task input { width: 20px; margin: 0; }
+    .done { text-decoration: line-through; color: var(--muted); }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 20px 0; }
+    nav button { flex: 1; min-width: 80px; }
+    .secondary { background: #302c45; color: var(--text); }
+    .section { display: none; }
+    .section.active { display: block; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>✦ Planator</h1>
+  <div class="muted">Твой день — под твоим контролем</div>
+
+  <div class="stats">
+    <div class="card">
+      <div class="muted">Задачи выполнены</div>
+      <div class="number" id="progress">0 / 0</div>
+    </div>
+    <div class="card">
+      <div class="muted">Твой тариф</div>
+      <div class="number" id="plan">Free</div>
+      <div class="muted">Plus — 299 ₽/мес.</div>
+    </div>
+  </div>
+
+  <nav>
+    <button onclick="showSection('tasks')">Задачи</button>
+    <button class="secondary" onclick="showSection('habits')">Привычки</button>
+    <button class="secondary" onclick="showSection('goals')">Цели</button>
+    <button class="secondary" onclick="showSection('ai')">ИИ-планер</button>
+  </nav>
+
+  <section id="tasks" class="section active">
+    <h2>Мои задачи</h2>
+    <div class="card">
+      <input id="taskInput" placeholder="Например, сделать домашнее задание">
+      <button class="add" onclick="addItem('tasks','taskInput')">+ Добавить задачу</button>
+      <div id="taskList"></div>
+    </div>
+  </section>
+
+  <section id="habits" class="section">
+    <h2>Привычки</h2>
+    <div class="card">
+      <input id="habitInput" placeholder="Например, читать 10 минут">
+      <button class="add" onclick="addItem('habits','habitInput')">+ Добавить привычку</button>
+      <div id="habitList"></div>
+    </div>
+  </section>
+
+  <section id="goals" class="section">
+    <h2>Мои цели</h2>
+    <div class="card">
+      <input id="goalInput" placeholder="Например, выучить английский">
+      <button class="add" onclick="addItem('goals','goalInput')">+ Добавить цель</button>
+      <div id="goalList"></div>
+    </div>
+  </section>
+
+  <section id="ai" class="section">
+    <h2>ИИ-планер</h2>
+    <div class="card">
+      <p class="muted">Опиши, что нужно сделать. Пока это демонстрация интерфейса — ИИ ещё не подключён.</p>
+      <input id="aiInput" placeholder="Что ты хочешь успеть сегодня?">
+      <button class="add" onclick="makePlan()">Составить черновик</button>
+      <div id="aiResult"></div>
+    </div>
+  </section>
+
+  <p class="muted">Planator · Планируй спокойно, достигай большего.</p>
+</main>
+
+<script>
+  const tg = window.Telegram?.WebApp;
+  tg?.ready();
+  tg?.expand();
+
+  function readItems(type) {
+    try {
+      return JSON.parse(localStorage.getItem('planator_' + type) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  function saveItems(type, items) {
+    localStorage.setItem('planator_' + type, JSON.stringify(items));
+  }
+
+  function showSection(id) {
+    document.querySelectorAll('.section').forEach(section => {
+      section.classList.toggle('active', section.id === id);
+    });
+  }
+
+  function addItem(type, inputId) {
+    const input = document.getElementById(inputId);
+    const value = input.value.trim();
+    if (!value) {
+      input.focus();
+      return;
+    }
+    const items = readItems(type);
+    items.push({ id: Date.now().toString(), text: value, done: false });
+    saveItems(type, items);
+    input.value = '';
+    renderItems(type);
+  }
+
+  function toggleItem(type, id) {
+    const items = readItems(type).map(item =>
+      item.id === id ? { ...item, done: !item.done } : item
+    );
+    saveItems(type, items);
+    renderItems(type);
+  }
+
+  function renderItems(type) {
+    const listId = { tasks: 'taskList', habits: 'habitList', goals: 'goalList' }[type];
+    const list = document.getElementById(listId);
+    list.replaceChildren();
+
+    readItems(type).forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'task';
+
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.checked = item.done;
+      check.setAttribute('aria-label', 'Отметить выполненным');
+      check.addEventListener('change', () => toggleItem(type, item.id));
+
+      const text = document.createElement('span');
+      text.textContent = item.text;
+      if (item.done) text.className = 'done';
+
+      row.append(check, text);
+      list.append(row);
+    });
+
+    const tasks = readItems('tasks');
+    document.getElementById('progress').textContent =
+      tasks.filter(task => task.done).length + ' / ' + tasks.length;
+  }
+
+  function makePlan() {
+    const value = document.getElementById('aiInput').value.trim();
+    const result = document.getElementById('aiResult');
+    result.replaceChildren();
+
+    if (!value) {
+      result.textContent = 'Сначала напиши, что нужно сделать.';
+      return;
+    }
+
+    const note = document.createElement('p');
+    note.textContent = 'Черновик плана:';
+    result.append(note);
+
+    value.split(/[,;\n]+/).map(item => item.trim()).filter(Boolean).forEach(item => {
+      const line = document.createElement('p');
+      line.textContent = '• ' + item;
+      result.append(line);
+    });
+  }
+
+  ['tasks', 'habits', 'goals'].forEach(renderItems);
+</script>
+</body>
+</html>
